@@ -27,7 +27,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.neighbors import NearestNeighbors, KNeighborsRegressor
 from timm.models.layers import DropPath, trunc_normal_
-from pointnet2_ops import pointnet2_utils
+#from pointnet2_ops import pointnet2_utils
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -58,10 +58,37 @@ def index_points(points, idx):
     return new_points
 
 
-def fps(data, number):
-    fps_idx = pointnet2_utils.furthest_point_sample(data, number)
-    fps_data = pointnet2_utils.gather_operation(data.transpose(1, 2).contiguous(), fps_idx).transpose(1, 2).contiguous()
-    return fps_data, fps_idx
+# def fps(data, number):
+#     fps_idx = pointnet2_utils.furthest_point_sample(data, number)
+#     fps_data = pointnet2_utils.gather_operation(data.transpose(1, 2).contiguous(), fps_idx).transpose(1, 2).contiguous()
+#     return fps_data, fps_idx
+
+def fps(xyz, npoint):
+    """
+    xyz: (B, N, 3)
+    returns:
+        center_xyz: (B, npoint, 3)
+        center_idx: (B, npoint)
+    """
+    device = xyz.device
+    B, N, C = xyz.shape
+
+    centroids = torch.zeros(B, npoint, dtype=torch.long, device=device)
+    distance = torch.ones(B, N, device=device) * 1e10
+    farthest = torch.randint(0, N, (B,), device=device)
+    batch_indices = torch.arange(B, device=device)
+
+    for i in range(npoint):
+        centroids[:, i] = farthest
+        centroid = xyz[batch_indices, farthest, :].view(B, 1, 3)
+        dist = torch.sum((xyz - centroid) ** 2, -1)
+        mask = dist < distance
+        distance[mask] = dist[mask]
+        farthest = torch.max(distance, -1)[1]
+
+    center_xyz = xyz[batch_indices.unsqueeze(-1), centroids]
+
+    return center_xyz, centroids
 
 
 class KNN(nn.Module):
